@@ -1,0 +1,14 @@
+{
+  "checked": "2026-11-04",
+  "catalog": "https://www.furukawaelectric.com/fitelnet/product/f220/manual/",
+  "documents": [
+    {"id": "config", "title": "コマンドリファレンス 構成定義編", "file": "cmd_refe_config.pdf"},
+    {"id": "operation", "title": "コマンドリファレンス 運用管理編", "file": "cmd_refe_ope.pdf"},
+    {"id": "features", "title": "機能説明書", "file": "kinou.pdf"},
+    {"id": "messages", "title": "メッセージ集", "file": "message.pdf"},
+    {"id": "specification", "title": "仕様一覧", "file": "siyou.pdf"},
+    {"id": "trouble", "title": "トラブルシューティング", "file": "trouble.pdf"},
+    {"id": "installation", "title": "ご利用にあたって", "file": "goriyouF220_F220EX.pdf"}
+  ],
+  "base_url": "https://www.furukawaelectric.com/fitelnet/f/man/220/pdf/"
+}

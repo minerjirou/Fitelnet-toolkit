@@ -1,0 +1,11 @@
+{
+  "devices": {
+    "branch": {
+      "host": "192.0.2.1",
+      "username": "admin",
+      "model": "F221",
+      "password_env": "BRANCH_PASSWORD",
+      "note": "Replace with your F221; documentation IP only"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+interface:
+  display_name: "FITELnet F221 SSH"
+  short_description: "FITELnet F221の状態確認・候補設定編集・反映・保存"

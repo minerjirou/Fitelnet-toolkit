@@ -1,0 +1,104 @@
+"""What may be sent to the device, and how a backup is named."""
+
+import re
+from collections.abc import Sequence
+from datetime import datetime
+from pathlib import Path
+
+from .errors import UsageError
+
+# Successful F221 saves and some informational messages start with '%'.
+# A percent sign alone must never mean failure.
+COMMAND_ERROR_PATTERN = (
+    r"(?im)^[ \t]*%[^\r\n]*\b(?:invalid|incomplete|ambiguous|error|failed|failure|denied|"
+    r"cannot|can't|unable|insufficient|not found|not allowed|not permitted|not supported)"
+    r"\b[^\r\n]*"
+)
+
+
+def _command_error(command: str, output: str) -> re.Match[str] | None:
+    fitelnet = re.search(
+        r"(?im)^[ \t]*(?:ERROR\s*:|%[^\r\n]*(?:can\s*not|unknown command)|"
+        r"This command cannot be executed\.|Rollback-config is running\.|"
+        r"(?:Invalid|Incomplete|Ambiguous|Unknown) (?:input|command)|"
+        r"(?:Syntax error|Permission denied|Command not found))[^\r\n]*",
+        output,
+    )
+    if fitelnet:
+        return fitelnet
+    # Both series document `% <input> -- <diagnostic>` for rejected commands.
+    # Match the actual input so notices containing `--` do not become failures.
+    # The diagnostic may be unfamiliar or in another language; do not require
+    # one of the English keywords in that case.
+    if command.strip():
+        pattern = rf"(?im)^[ \t]*%[ \t]*{re.escape(command.strip())}[ \t]+--[ \t]*\S[^\r\n]*"
+        match = re.search(pattern, output)
+        if match:
+            return match
+    return re.search(COMMAND_ERROR_PATTERN, output)
+
+
+def is_show_command(cmd: str) -> bool:
+    """Show mode only ever sends `show ...`; anything else is refused there so a
+    stray config line cannot slip through the read-only skills."""
+    # Check before stripping: even a trailing newline or TAB can execute or
+    # complete input on the device's interactive terminal.
+    return (
+        all(c.isprintable() for c in cmd)
+        and cmd.strip().split(" ", 1)[0].lower() == "show"
+        and not any(c in cmd for c in ";|?")
+    )
+
+
+def validate_show_commands(commands: Sequence[str]) -> None:
+    for cmd in commands:
+        if not is_show_command(cmd):
+            raise UsageError(
+                f"ERROR: expected a single show command without control characters: {cmd!r}"
+            )
+
+
+def check_command_output(command: str, output: str) -> str:
+    """Reject known CLI error diagnostics, returning successful output intact."""
+    if re.search(r"(?im)^[ \t]*%[ \t]*CONFIG process is occupied\.", output):
+        raise UsageError(f"ERROR: {command!r}: config mode is occupied by another user")
+    match = _command_error(command, output)
+    if match:
+        raise UsageError(f"ERROR: {command!r} failed: {match.group(0)}")
+    return output
+
+
+def config_stopped_at(number: int, total: int) -> str:
+    """Names a failed config line by its position only. The line itself can carry a
+    secret (pre-shared key, password), so it never goes into an error message."""
+    return f"configuration stopped at config line {number} of {total}"
+
+
+def check_config_line_output(number: int, total: int, output: str, *, command: str = "") -> str:
+    """Reject config errors without displaying device text. A device can quote,
+    unquote, escape or truncate a secret; masking the original input cannot cover
+    every representation. Only the position and a fixed explanation are safe."""
+    if _command_error(command, output):
+        raise UsageError(
+            f"ERROR: {config_stopped_at(number, total)}: device rejected input; "
+            "earlier lines may already be applied"
+        )
+    return output
+
+
+def parse_config_lines(text: str) -> list[str]:
+    """Config lines from a file: one per line, blank lines and # comments dropped,
+    indentation kept so the file remains readable."""
+    lines: list[str] = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        if not s or s.startswith(("#", "!")):
+            continue
+        lines.append(raw.rstrip())
+    return lines
+
+
+def default_backup_path(slug: str, now: datetime) -> Path:
+    """backups/<device>-<YYYYMMDD-HHMMSS>.conf. The timestamp is the operator's
+    local time (they read the file names), so `now` should be local-aware."""
+    return Path("backups") / f"{slug}-{now.strftime('%Y%m%d-%H%M%S')}.conf"

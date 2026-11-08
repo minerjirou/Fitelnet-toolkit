@@ -1,0 +1,141 @@
+"""Command line: argument parsing, the final error message and the exit code.
+Calls application only."""
+
+import argparse
+import sys
+
+from ..application import BACKUP_AUTO, DEFAULT_SSH_CONFIG, INVENTORY_ENV, Request, run
+from ..domain import DEFAULT_PORT, TargetRequest, UsageError
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="fitelnet-ssh",
+        description="FITELnet F221 SSH helper. Edit working.cfg, commit, and save separately.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("shows", nargs="*", help='show commands, e.g. "show ip route"')
+
+    tgt = p.add_argument_group("target")
+    tgt.add_argument(
+        "-d", "--device", metavar="NAME", help="inventory device name ($FITELNET_DEVICE)"
+    )
+    tgt.add_argument(
+        "--host", metavar="HOST", help="host/IP, bypassing the inventory ($FITELNET_HOST)"
+    )
+    tgt.add_argument(
+        "--user", "--username", dest="user", metavar="USER", help="login user ($FITELNET_USER)"
+    )
+    tgt.add_argument(
+        "--port", metavar="PORT", help=f"SSH port ($FITELNET_PORT, default {DEFAULT_PORT})"
+    )
+    tgt.add_argument("--password-env", metavar="VAR", help="read the password from $VAR")
+    tgt.add_argument(
+        "--ask-password",
+        action="store_true",
+        help="prompt for the password when no other source has it (interactive only)",
+    )
+    tgt.add_argument("--key-file", metavar="PATH", help="private key for SSH key auth")
+    tgt.add_argument(
+        "--ssh-config",
+        metavar="PATH",
+        help=f"ssh_config used to resolve aliases/ProxyJump (default {DEFAULT_SSH_CONFIG})",
+    )
+    tgt.add_argument(
+        "--no-ssh-config",
+        action="store_true",
+        help="treat host as a literal address; skip ssh_config alias/ProxyJump resolution",
+    )
+    tgt.add_argument("--inventory", metavar="PATH", help=f"inventory JSON (${INVENTORY_ENV})")
+    tgt.add_argument("--list", action="store_true", help="list inventory devices and exit")
+
+    p.add_argument(
+        "--config",
+        action="append",
+        default=[],
+        metavar="LINE",
+        help="config line to apply (repeatable)",
+    )
+    p.add_argument(
+        "--config-file",
+        metavar="PATH",
+        help="file with config lines (one per line; # comments ok)",
+    )
+    p.add_argument(
+        "--backup",
+        nargs="?",
+        const=BACKUP_AUTO,
+        default=None,
+        metavar="PATH",
+        help="save running-config to PATH (default backups/<device>-<timestamp>.conf)",
+    )
+    p.add_argument("--commit", action="store_true", help="activate working.cfg after config")
+    p.add_argument("--save", action="store_true", help="persist working.cfg after optional commit")
+    p.add_argument(
+        "--enable-password-env",
+        metavar="VAR",
+        help="enable 15 password environment variable (default FITELNET_ENABLE_PASSWORD)",
+    )
+    p.add_argument(
+        "--raw",
+        action="store_true",
+        help="suppress ===== headers (clean output for redirection)",
+    )
+    return p.parse_args(argv)
+
+
+def request_from(args: argparse.Namespace) -> Request:
+    return Request(
+        target=TargetRequest(
+            device=args.device,
+            host=args.host,
+            user=args.user,
+            port=args.port,
+            password_env=args.password_env,
+            ask_password=args.ask_password,
+            key_file=args.key_file,
+            ssh_config=args.ssh_config,
+            no_ssh_config=args.no_ssh_config,
+            enable_password_env=args.enable_password_env,
+        ),
+        shows=tuple(args.shows),
+        config_lines=tuple(args.config),
+        config_file=args.config_file,
+        backup=args.backup,
+        save=args.save,
+        commit=args.commit,
+        raw=args.raw,
+        list=args.list,
+        inventory=args.inventory,
+    )
+
+
+def use_utf8(stream) -> None:
+    """Write `stream` as UTF-8 whatever the locale says. On Windows a pipe (an
+    agent capturing the output) gets the ANSI code page (cp932 on Japanese
+    systems), which cannot encode everything a device or a note may contain, and
+    the run dies mid-output with UnicodeEncodeError. Streams that cannot be
+    reconfigured (a StringIO under redirect_stdout) are left alone."""
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors=stream.errors)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Console-script entry point (see [project.scripts] in pyproject.toml)."""
+    use_utf8(sys.stdout)
+    use_utf8(sys.stderr)
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    try:
+        run(request_from(args))
+    except UsageError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    except Exception:  # noqa: BLE001 -- final CLI boundary must not leak SSH command text
+        # SSH exception messages can contain a command with embedded credentials.
+        print(
+            "ERROR: connection or I/O failed; device state may be uncertain; inspect before retry",
+            file=sys.stderr,
+        )
+        return 1
+    return 0

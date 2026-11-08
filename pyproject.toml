@@ -1,0 +1,70 @@
+[project]
+name = "fitelnet-toolkit"
+version = "0.1.0"
+description = "FITELnet F221 SSH operations and searchable official manuals"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["netmiko>=4.7,<5", "paramiko>=3.0,<5", "pypdf>=6,<7", "fonttools>=4,<5"]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.16.7,<0.17"]
+
+
+# The skills call this command from PATH; `uv tool install -e <clone>` puts it
+# there (see README). The repository is always cloned whole, so the client can
+# live in src/ as an ordinary package instead of being copied into every skill
+# directory.
+[project.scripts]
+fitelnet-ssh = "fitelnet_ssh.cli:main"
+fitelnet-manual = "fitelnet_manual.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fitelnet_ssh", "src/fitelnet_manual"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+required-version = ">=0.16.7,<0.17"
+
+[tool.ruff.lint]
+# Explicit families keep upgrades from silently changing the default rule set.
+# Docstring/annotation coverage, pytest migration and formatter-conflicting
+# rules are separate policies, not part of this CLI's correctness checks.
+select = [
+    "E", "F", "W", "I", "N", "UP", "YTT",  # syntax, imports, Python 3.10
+    "B", "A", "C4", "C90", "BLE",           # bugs, shadowing, complexity, exceptions
+    "S", "DTZ", "T10", "FA", "FLY",         # security, timezones, debugging, typing syntax
+    "ICN", "ISC", "G", "LOG", "PIE",        # imports, string concatenation, logging
+    "RET", "RSE", "SIM", "SLOT", "ARG",     # control flow and unused arguments
+    "PTH", "PL", "PERF", "FURB", "RUF",    # paths, diagnostics, performance
+    "PGH", "INP", "TRY", "ASYNC", "COM818", # suppressions, packages, cleanup
+    "TID251", "TID253",                     # banned APIs and eager SSH imports
+    # Opt in only to reviewed preview diagnostics.
+    "B909", "PLE1141", "PLE4703", "PLW0244", "PLW1514", "PLW3201",
+    "RUF027", "RUF031", "RUF045", "RUF052", "RUF066", "RUF071",
+    "RUF072", "RUF074", "RUF075", "RUF077",
+]
+ignore = [
+    "TRY003",  # UsageError deliberately carries actionable CLI-specific messages.
+]
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+# --help/--list must work even when SSH dependencies cannot be imported.
+banned-module-level-imports = ["netmiko", "paramiko"]
+
+[tool.ruff.lint.per-file-ignores]
+# Synthetic credentials and controlled process arguments are integration fixtures.
+# Shell execution and other security checks remain enabled in tests.
+"tests/**" = ["S105", "S106", "S107", "S603", "S607"]
+# The server implements Paramiko callbacks and an intentionally exhaustive IX
+# command interpreter; callback argument names/signatures must match Paramiko.
+"tests/fake_fitelnet.py" = ["ARG002", "C901", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "TID253"]
+# Only this module probes whether optional SSH dependencies are installed.
+"tests/test_integration.py" = ["TID253"]
